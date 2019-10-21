@@ -8,11 +8,21 @@ int main() {
   assert(dpy);
 
   int whiteColor = BlackPixel(dpy, DefaultScreen(dpy));
+  int border_color, background_color;
+  Colormap cmap = DefaultColormap(dpy, DefaultScreen(dpy));
+  XColor xc1, xc2;
+
+  XAllocNamedColor(dpy, cmap, "DarkGreen", &xc1, &xc2);
+  background_color = xc1.pixel;
+  XAllocNamedColor(dpy, cmap, "LightGreen", &xc1, &xc2);
+  border_color = xc1.pixel;
+  XAllocNamedColor(dpy, cmap, "Red", &xc1, &xc2);
+
 
   int width = 300, height = 200;
 
   Window win = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 0, 0,
-                                 width, height, 1, whiteColor, whiteColor);
+                                 width, height, 10, border_color, background_color);
 
   XSelectInput(dpy, win, StructureNotifyMask|ButtonPressMask|ExposureMask);
   XMapWindow(dpy, win);
@@ -23,8 +33,8 @@ int main() {
   GC pen;
   XGCValues values;
 
-  values.foreground = WhitePixel(dpy, DefaultScreen(dpy));
-  values.line_width = 1;
+  values.foreground = xc1.pixel;
+  values.line_width = 3;
   values.line_style = LineSolid;
 
   pen = XCreateGC(dpy, win, GCForeground|GCLineWidth|GCLineStyle, &values);

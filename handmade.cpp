@@ -19,29 +19,29 @@ int main() {
   Atom wmDeleteMessage = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
   XSetWMProtocols(dpy, win, &wmDeleteMessage, 1);
 
-  XEvent e;
+  XEvent event;
   bool running = True;
 
   while(running) {
-    XNextEvent(dpy, &e);
+    XNextEvent(dpy, &event);
 
-    switch(e.type) {
+    switch(event.type) {
     case Expose:
       {
         // drawing here
       } break;
     case ConfigureNotify:
       {
-        if (width != e.xconfigure.width || height != e.xconfigure.height) {
-          width = e.xconfigure.width;
-          height = e.xconfigure.height;
-          XClearWindow(dpy, e.xany.window);
+        if (width != event.xconfigure.width || height != event.xconfigure.height) {
+          width = event.xconfigure.width;
+          height = event.xconfigure.height;
+          XClearWindow(dpy, event.xany.window);
           printf("Size has changed: %d %d\n", width, height);
         }
       } break;
     case ClientMessage:
       {
-        if (e.xclient.data.l[0] == wmDeleteMessage) {
+        if (event.xclient.data.l[0] == wmDeleteMessage) {
           running = False;
         }
       } break;

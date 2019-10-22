@@ -2,6 +2,6 @@
 
 mkdir -p build
 pushd build
-gcc ../handmade.cpp -lX11 -g -o handmade
+gcc $(pwd)/../handmade.cpp -lX11 -g -o handmade
 popd
 

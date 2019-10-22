@@ -7,58 +7,53 @@ int main() {
   Display* dpy = XOpenDisplay(0);
   assert(dpy);
 
-  int whiteColor = BlackPixel(dpy, DefaultScreen(dpy));
-  int border_color, background_color;
-  Colormap cmap = DefaultColormap(dpy, DefaultScreen(dpy));
-  XColor xc1, xc2;
-
-  XAllocNamedColor(dpy, cmap, "DarkGreen", &xc1, &xc2);
-  background_color = xc1.pixel;
-  XAllocNamedColor(dpy, cmap, "LightGreen", &xc1, &xc2);
-  border_color = xc1.pixel;
-  XAllocNamedColor(dpy, cmap, "Red", &xc1, &xc2);
-
-
+  int whiteColor = WhitePixel(dpy, DefaultScreen(dpy));
   int width = 300, height = 200;
 
   Window win = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 0, 0,
-                                 width, height, 10, border_color, background_color);
+                                 width, height, 0, 0, whiteColor);
 
   XSelectInput(dpy, win, StructureNotifyMask|ButtonPressMask|ExposureMask);
   XMapWindow(dpy, win);
 
-  GC gc = XCreateGC(dpy, win, 0, 0);
-  XSetForeground(dpy, gc, whiteColor);
-
-  GC pen;
-  XGCValues values;
-
-  values.foreground = xc1.pixel;
-  values.line_width = 3;
-  values.line_style = LineSolid;
-
-  pen = XCreateGC(dpy, win, GCForeground|GCLineWidth|GCLineStyle, &values);
+  Atom wmDeleteMessage = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+  XSetWMProtocols(dpy, win, &wmDeleteMessage, 1);
 
   XEvent e;
-  while(True) {
+  bool running = True;
+
+  while(running) {
     XNextEvent(dpy, &e);
+
     switch(e.type) {
     case Expose:
-      XDrawLine(dpy, win, pen, 0, 0, width, height);
-      XDrawLine(dpy, win, pen, width, 0, 0, height);
-      break;
+      {
+        // drawing here
+      } break;
     case ConfigureNotify:
-      if (width != e.xconfigure.width || height != e.xconfigure.height) {
-        width = e.xconfigure.width;
-        height = e.xconfigure.height;
-        XClearWindow(dpy, e.xany.window);
-        printf("Size has changed: %d %d\n", width, height);
-      }
-      break;
+      {
+        if (width != e.xconfigure.width || height != e.xconfigure.height) {
+          width = e.xconfigure.width;
+          height = e.xconfigure.height;
+          XClearWindow(dpy, e.xany.window);
+          printf("Size has changed: %d %d\n", width, height);
+        }
+      } break;
+    case ClientMessage:
+      {
+        if (e.xclient.data.l[0] == wmDeleteMessage) {
+          running = False;
+        }
+      } break;
     case ButtonPress:
-      printf("");
-//      XCloseDisplay(dpy);
-//      return 0;
+      {
+        //      XCloseDisplay(dpy);
+        //      return 0;
+      } break;
+    default:
+      {}
     }
   }
+
+  XSync(dpy, False);
 }

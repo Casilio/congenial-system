@@ -5,11 +5,11 @@
 
 SDL_Texture *Texture;
 void *Pixels;
-int TextureWidth;
 int BytesPerPixel = 4;
 
-bool HandleEvent(SDL_Event *Event);
-void SDLResizeTexture(SDL_Renderer *Renderer, int Width, int Heigth);
+bool HandleEvent(SDL_Event*);
+void SDLResizeTexture(SDL_Renderer*, int, int);
+void SDLUpdatePixels(SDL_Window*);
 
 int main() {
   if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -27,13 +27,18 @@ int main() {
   SDL_Renderer *Renderer = SDL_CreateRenderer(Window, -1, 0);
   SDLResizeTexture(Renderer, Width, Height);
 
-  for(;;) {
-    SDL_Event Event;
-    SDL_WaitEvent(&Event);
+  bool Running = true;
 
-    if (HandleEvent(&Event)) {
-      break;
+  while(Running) {
+    SDL_Event Event;
+
+    while(SDL_PollEvent(&Event)) {
+      if (HandleEvent(&Event)) {
+        Running = false;
+      }
     }
+
+    SDLUpdatePixels(Window);
   }
 
   if (Texture) { SDL_DestroyTexture(Texture); }
@@ -58,34 +63,6 @@ bool HandleEvent(SDL_Event *Event) {
 
           SDLResizeTexture(Renderer, Width, Height);
         } break;
-
-        case SDL_WINDOWEVENT_EXPOSED: {
-          SDL_Window *Window = SDL_GetWindowFromID(Event->window.windowID);
-          SDL_Renderer *Renderer = SDL_GetRenderer(Window);
-          int Width, Height;
-          SDL_GetWindowSize(Window, &Width, &Height);
-
-          int Pitch = Width * BytesPerPixel;
-          uint8_t *Row = (uint8_t *)Pixels;
-          for (int Y = 0; Y < Height; ++Y) {
-
-            uint32_t *Pixel = (uint32_t *)Row;
-            for (int X = 0; X < Width; ++X) {
-              uint8_t Blue = (X);
-              uint8_t Green = (Y);
-
-              *Pixel++ = ((Green << 8) | Blue);
-            }
-
-            Row += Pitch;
-
-          }
-
-          SDL_UpdateTexture(Texture, 0, Pixels, TextureWidth * BytesPerPixel);
-          SDL_RenderCopy(Renderer, Texture, 0, 0);
-
-          SDL_RenderPresent(Renderer);
-        } break;
       }
     } break;
   }
@@ -105,4 +82,36 @@ void SDLResizeTexture(SDL_Renderer *Renderer, int Width, int Height) {
                               SDL_TEXTUREACCESS_STREAMING,
                               Width, Height);
   Pixels = malloc(Width * Height * BytesPerPixel);
+}
+
+void SDLUpdatePixels(SDL_Window *Window) {
+  SDL_Renderer *Renderer = SDL_GetRenderer(Window);
+  int Width, Height;
+  SDL_GetWindowSize(Window, &Width, &Height);
+
+  int Pitch = Width * BytesPerPixel;
+  uint8_t *Row = (uint8_t *)Pixels;
+  for (int Y = 0; Y < Height; ++Y) {
+
+    uint32_t *Pixel = (uint32_t *)Row;
+    for (int X = 0; X < Width; ++X) {
+      uint8_t Blue = (X);
+      uint8_t Green = (Y);
+      uint8_t Red = 0;
+
+      if (X % 128 < 3 || Y % 256 < 4) {
+        Red = 255;
+      }
+
+      *Pixel++ = ((Red << 16) | (Green << 8) | Blue);
+    }
+
+    Row += Pitch;
+
+  }
+
+  SDL_UpdateTexture(Texture, NULL, Pixels, Width * BytesPerPixel);
+  SDL_RenderCopy(Renderer, Texture, 0, 0);
+
+  SDL_RenderPresent(Renderer);
 }

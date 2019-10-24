@@ -1,59 +1,108 @@
-#include <X11/Xlib.h>
-#include <assert.h>
-#include <unistd.h>
+#include <SDL.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+
+SDL_Texture *Texture;
+void *Pixels;
+int TextureWidth;
+int BytesPerPixel = 4;
+
+bool HandleEvent(SDL_Event *Event);
+void SDLResizeTexture(SDL_Renderer *Renderer, int Width, int Heigth);
 
 int main() {
-  Display* dpy = XOpenDisplay(0);
-  assert(dpy);
+  if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    printf("%s\n", SDL_GetError());
+    exit(1);
+  }
 
-  int whiteColor = WhitePixel(dpy, DefaultScreen(dpy));
-  int width = 300, height = 200;
+  int Width = 640, Height = 480;
 
-  Window win = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), 0, 0,
-                                 width, height, 0, 0, whiteColor);
+  SDL_Window *Window = SDL_CreateWindow("Handmade",
+                                        SDL_WINDOWPOS_UNDEFINED,
+                                        SDL_WINDOWPOS_UNDEFINED,
+                                        640, 480,
+                                        SDL_WINDOW_RESIZABLE);
+  SDL_Renderer *Renderer = SDL_CreateRenderer(Window, -1, 0);
+  SDLResizeTexture(Renderer, Width, Height);
 
-  XSelectInput(dpy, win, StructureNotifyMask|ButtonPressMask|ExposureMask);
-  XMapWindow(dpy, win);
+  for(;;) {
+    SDL_Event Event;
+    SDL_WaitEvent(&Event);
 
-  Atom wmDeleteMessage = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
-  XSetWMProtocols(dpy, win, &wmDeleteMessage, 1);
-
-  XEvent event;
-  bool running = True;
-
-  while(running) {
-    XNextEvent(dpy, &event);
-
-    switch(event.type) {
-    case Expose:
-      {
-        // drawing here
-      } break;
-    case ConfigureNotify:
-      {
-        if (width != event.xconfigure.width || height != event.xconfigure.height) {
-          width = event.xconfigure.width;
-          height = event.xconfigure.height;
-          XClearWindow(dpy, event.xany.window);
-          printf("Size has changed: %d %d\n", width, height);
-        }
-      } break;
-    case ClientMessage:
-      {
-        if (event.xclient.data.l[0] == wmDeleteMessage) {
-          running = False;
-        }
-      } break;
-    case ButtonPress:
-      {
-        //      XCloseDisplay(dpy);
-        //      return 0;
-      } break;
-    default:
-      {}
+    if (HandleEvent(&Event)) {
+      break;
     }
   }
 
-  XSync(dpy, False);
+  if (Texture) { SDL_DestroyTexture(Texture); }
+  if (Pixels) { free(Pixels); }
+  SDL_Quit();
+}
+
+bool HandleEvent(SDL_Event *Event) {
+  bool ShouldQuit = false;
+
+  switch(Event->type) {
+    case SDL_QUIT: {
+      ShouldQuit = true;
+    } break;
+    case SDL_WINDOWEVENT: {
+      switch(Event->window.event) {
+        case SDL_WINDOWEVENT_RESIZED: {
+          SDL_Window *Window = SDL_GetWindowFromID(Event->window.windowID);
+          SDL_Renderer *Renderer = SDL_GetRenderer(Window);
+          int Width, Height;
+          SDL_GetWindowSize(Window, &Width, &Height);
+
+          SDLResizeTexture(Renderer, Width, Height);
+        } break;
+
+        case SDL_WINDOWEVENT_EXPOSED: {
+          SDL_Window *Window = SDL_GetWindowFromID(Event->window.windowID);
+          SDL_Renderer *Renderer = SDL_GetRenderer(Window);
+          int Width, Height;
+          SDL_GetWindowSize(Window, &Width, &Height);
+
+          int Pitch = Width * BytesPerPixel;
+          uint8_t *Row = (uint8_t *)Pixels;
+          for (int Y = 0; Y < Height; ++Y) {
+
+            uint32_t *Pixel = (uint32_t *)Row;
+            for (int X = 0; X < Width; ++X) {
+              uint8_t Blue = (X);
+              uint8_t Green = (Y);
+
+              *Pixel++ = ((Green << 8) | Blue);
+            }
+
+            Row += Pitch;
+
+          }
+
+          SDL_UpdateTexture(Texture, 0, Pixels, TextureWidth * BytesPerPixel);
+          SDL_RenderCopy(Renderer, Texture, 0, 0);
+
+          SDL_RenderPresent(Renderer);
+        } break;
+      }
+    } break;
+  }
+  return ShouldQuit;
+}
+
+void SDLResizeTexture(SDL_Renderer *Renderer, int Width, int Height) {
+  if (Texture) {
+    SDL_DestroyTexture(Texture);
+  }
+  if (Pixels) {
+    free(Pixels);
+  }
+
+  Texture = SDL_CreateTexture(Renderer,
+                              SDL_PIXELFORMAT_ARGB8888,
+                              SDL_TEXTUREACCESS_STREAMING,
+                              Width, Height);
+  Pixels = malloc(Width * Height * BytesPerPixel);
 }

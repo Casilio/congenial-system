@@ -104,12 +104,15 @@ int main() {
     const Uint8* keys = SDL_GetKeyboardState(0);
 
     if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) {
-      YOffset += speed;
-    } else if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) {
       YOffset -= speed;
-    } else if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) {
+    }
+    if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) {
+      YOffset += speed;
+    }
+    if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) {
       XOffset += speed;
-    } else if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]) {
+    }
+    if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]) {
       XOffset -= speed;
     }
 

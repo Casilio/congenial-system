@@ -42,30 +42,20 @@ bool HandleEvent(SDL_Event *Event) {
     case SDL_QUIT: {
       ShouldQuit = true;
     } break;
-    case SDL_WINDOWEVENT: {
-      switch(Event->window.event) {
-        case SDL_WINDOWEVENT_RESIZED: {
-        } break;
-      }
-    } break;
   }
   return ShouldQuit;
 }
 
 
-void SDLUpdatePixels(BackBuffer Buffer) {
+void SDLUpdatePixels(BackBuffer Buffer, int XOffset, int YOffset) {
   uint8_t *Row = (uint8_t *)Buffer.Pixels;
   for (int Y = 0; Y < (Buffer.Height); ++Y) {
 
     uint32_t *Pixel = (uint32_t *)Row;
     for (int X = 0; X < (Buffer.Width); ++X) {
-      uint8_t Blue = (X);
-      uint8_t Green = (Y);
-      uint8_t Red = 0;
-
-      if (X % 128 < 3 || Y % 256 < 4) {
-        Red = 255;
-      }
+      uint8_t Blue = (X + XOffset);
+      uint8_t Green = (Y + YOffset);
+      uint8_t Red = 128;
 
       *Pixel++ = ((Red << 16) | (Green << 8) | Blue);
     }
@@ -99,6 +89,9 @@ int main() {
 
   bool Running = true;
 
+  int XOffset = 0, YOffset = 0;
+  int speed = 3;
+
   while(Running) {
     SDL_Event Event;
 
@@ -108,7 +101,23 @@ int main() {
       }
     }
 
-    SDLUpdatePixels(Buffer);
+    const Uint8* keys = SDL_GetKeyboardState(0);
+
+    if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) {
+      YOffset += speed;
+    } else if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) {
+      YOffset -= speed;
+    } else if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) {
+      XOffset += speed;
+    } else if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]) {
+      XOffset -= speed;
+    }
+
+    if (keys[SDL_SCANCODE_ESCAPE]) {
+      Running = false;
+    }
+
+    SDLUpdatePixels(Buffer, XOffset, YOffset);
     SDLUpdateWindow(Window, Renderer, Buffer);
   }
 

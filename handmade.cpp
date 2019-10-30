@@ -13,6 +13,15 @@ struct BackBuffer {
 
 static BackBuffer Buffer;
 
+struct sdl_audio_ring_buffer {
+  int Size;
+  int WriteCursor;
+  int PlayCursor;
+  void *Data;
+};
+
+sdl_audio_ring_buffer AudioRingBuffer;
+
 void SDLResizeTexture(SDL_Renderer *Renderer, BackBuffer *Buffer, int Width, int Height) {
   if (Buffer->Texture) {
     SDL_DestroyTexture(Buffer->Texture);
@@ -71,8 +80,48 @@ void SDLUpdateWindow(SDL_Window *Window, SDL_Renderer *Renderer, BackBuffer buff
   SDL_RenderPresent(Renderer);
 }
 
+void SDLAudioCallback(void *UserData, uint8_t *AudioData, int Length) {
+  sdl_audio_ring_buffer *RingBuffer = (sdl_audio_ring_buffer *)UserData;
+
+  int Region1Size = Length;
+  int Region2Size = 0;
+  if (RingBuffer->PlayCursor + Length > RingBuffer->Size) {
+    Region1Size = RingBuffer->Size -  RingBuffer->PlayCursor;
+    Region2Size = Length - Region1Size;
+  }
+  memcpy(AudioData, (uint8_t*)(RingBuffer->Data) + RingBuffer->PlayCursor, Region1Size);
+  memcpy(&AudioData[Region1Size], RingBuffer->Data, Region2Size);
+  RingBuffer->PlayCursor = (RingBuffer->PlayCursor + Length) % RingBuffer->Size;
+  RingBuffer->WriteCursor = (RingBuffer->PlayCursor + 2048) % RingBuffer->Size;
+}
+
+void SDLInitAudio(int32_t SamplePerSecond, int32_t BufferSize) {
+  SDL_AudioSpec AudioSettings = {0};
+
+  AudioSettings.freq = SamplePerSecond;
+  AudioSettings.format = AUDIO_S16LSB;
+  AudioSettings.channels = 2;
+  AudioSettings.samples = 1024;
+  AudioSettings.callback = &SDLAudioCallback;
+  AudioSettings.userdata = &AudioRingBuffer;
+
+  AudioRingBuffer.Size = BufferSize;
+  AudioRingBuffer.Data = malloc(BufferSize);
+  AudioRingBuffer.PlayCursor = AudioRingBuffer.WriteCursor = 0;
+
+  SDL_OpenAudio(&AudioSettings, 0);
+
+  printf("Initialised an audio device at frequency %d Hz, %d Channels, buffer size %d\n",
+         AudioSettings.freq, AudioSettings.channels, AudioSettings.samples);
+
+  if (AudioSettings.format != AUDIO_S16LSB) {
+    printf("DIDN'T GET AUDIO FORMAT");
+    SDL_CloseAudio();
+  }
+}
+
 int main() {
-  if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
     printf("%s\n", SDL_GetError());
     exit(1);
   }
@@ -91,6 +140,20 @@ int main() {
 
   int XOffset = 0, YOffset = 0;
   int speed = 3;
+
+  // Sound Test
+  int SamplesPerSecond = 48000;
+  int ToneHz = 256;
+  int16_t ToneVolume = 3000;
+  uint32_t RunningSampleIndex = 0;
+  int SquareWavePeriod = SamplesPerSecond / ToneHz;
+  int HalfSquareWavePeriod = SquareWavePeriod / 2;
+  int BytesPerSample = sizeof(int16_t) * 2;
+  int SecondaryBufferSize = SamplesPerSecond * BytesPerSample;
+
+  // Open our audio device
+  SDLInitAudio(48000, SecondaryBufferSize);
+  bool SoundIsPlaying = false;
 
   while(Running) {
     SDL_Event Event;
@@ -122,6 +185,55 @@ int main() {
 
     SDLUpdatePixels(Buffer, XOffset, YOffset);
     SDLUpdateWindow(Window, Renderer, Buffer);
+
+    // Sound output test
+    SDL_LockAudio();
+    int BytesToLock = RunningSampleIndex * BytesPerSample % SecondaryBufferSize;
+    int BytesToWrite;
+    if (BytesToLock == AudioRingBuffer.PlayCursor) {
+      BytesToWrite = SecondaryBufferSize;
+    } else if (BytesToLock > AudioRingBuffer.PlayCursor) {
+      BytesToWrite = (SecondaryBufferSize - BytesToLock);
+      BytesToWrite += AudioRingBuffer.PlayCursor;
+    } else {
+      BytesToWrite = AudioRingBuffer.PlayCursor - BytesToLock;
+    }
+
+    void *Region1 = (uint8_t*)AudioRingBuffer.Data + BytesToLock;
+    int Region1Size = BytesToWrite;
+
+    if (Region1Size + BytesToLock > SecondaryBufferSize) {
+      Region1Size = SecondaryBufferSize - BytesToLock;
+    }
+
+    void *Region2 = AudioRingBuffer.Data;
+    int Region2Size = BytesToWrite - Region1Size;
+    SDL_UnlockAudio();
+
+    int Region1SampleCount = Region1Size / BytesPerSample;
+    int16_t *SampleOut = (int16_t*)Region1;
+
+    for (int SampleIndex = 0; SampleIndex < Region1SampleCount; ++SampleIndex) {
+      int16_t SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? ToneVolume : -ToneVolume;
+
+      *SampleOut++ = SampleValue;
+      *SampleOut++ = SampleValue;
+    }
+
+    int Region2SampleCount = Region2Size / BytesPerSample;
+    SampleOut = (int16_t *)Region2;
+
+    for (int SampleIndex = 0; SampleIndex < Region2SampleCount; ++SampleIndex) {
+      int16_t SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? ToneVolume : -ToneVolume;
+
+      *SampleOut++ = SampleValue;
+      *SampleOut++ = SampleValue;
+    }
+
+    if (!SoundIsPlaying) {
+      SDL_PauseAudio(0);
+      SoundIsPlaying = true;
+    }
   }
 
   if (Buffer.Texture) { SDL_DestroyTexture(Buffer.Texture); }

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <math.h>
+#include <x86intrin.h>
 
 struct BackBuffer {
   SDL_Texture *Texture;
@@ -150,7 +151,6 @@ void SDLFillSoundBuffer(sdl_sound_output *SoundOutput, int ByteToLock, int Bytes
     for (int SampleIndex = 0; SampleIndex < Region1SampleCount; ++SampleIndex) {
       float SineValue = sin(SoundOutput->tSine);
       int16_t SampleValue = (int16_t)(SineValue * SoundOutput->ToneVolume);
-      printf("%d\n", SampleValue);
       *SampleOut++ = SampleValue;
       *SampleOut++ = SampleValue;
 
@@ -170,6 +170,15 @@ void SDLFillSoundBuffer(sdl_sound_output *SoundOutput, int ByteToLock, int Bytes
       SoundOutput->tSine += 2.0f * M_PI * 1.0f / (float)SoundOutput->WavePeriod;
       ++SoundOutput->RunningSampleIndex;
     }
+}
+
+void update_tone(sdl_sound_output *SoundOutput, int NewTone) {
+  if (NewTone <= 1 || NewTone > 4000) {
+    return;
+  }
+
+  SoundOutput->ToneHz = NewTone;
+  SoundOutput->WavePeriod = SoundOutput->SamplesPerSecond / SoundOutput->ToneHz;
 }
 
 int main() {
@@ -196,21 +205,22 @@ int main() {
   // Sound Test
   sdl_sound_output SoundOutput;
   SoundOutput.SamplesPerSecond = 48000;
-  SoundOutput.ToneHz = 256;
   SoundOutput.ToneVolume = 3000;
   SoundOutput.RunningSampleIndex = 0;
-  SoundOutput.WavePeriod = SoundOutput.SamplesPerSecond / SoundOutput.ToneHz;
   SoundOutput.BytesPerSample = sizeof(int16_t) * 2;
   SoundOutput.tSine = 0.0f;
   SoundOutput.LatencySampleCount = SoundOutput.SamplesPerSecond / 15;
   SoundOutput.SecondaryBufferSize = SoundOutput.SamplesPerSecond * SoundOutput.BytesPerSample;
+  update_tone(&SoundOutput, 256);
 
   // Open our audio device
   SDLInitAudio(48000, SoundOutput.SecondaryBufferSize);
   SDLFillSoundBuffer(&SoundOutput, 0, SoundOutput.LatencySampleCount * SoundOutput.BytesPerSample);
   SDL_PauseAudio(0);
 
-  bool SoundIsPlaying = false;
+  uint64_t PerfCountFrequency = SDL_GetPerformanceFrequency();
+  uint64_t LastCounter = SDL_GetPerformanceCounter();
+  uint64_t LastCycleCount = _rdtsc();
 
   while(Running) {
     SDL_Event Event;
@@ -225,9 +235,11 @@ int main() {
 
     if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) {
       YOffset -= speed;
+      update_tone(&SoundOutput, SoundOutput.ToneHz + 1);
     }
     if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) {
       YOffset += speed;
+      update_tone(&SoundOutput, SoundOutput.ToneHz - 1);
     }
     if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) {
       XOffset += speed;
@@ -258,6 +270,19 @@ int main() {
     SDLFillSoundBuffer(&SoundOutput, ByteToLock, BytesToWrite);
 
     SDLUpdateWindow(Window, Renderer, Buffer);
+
+    uint64_t EndCounter = SDL_GetPerformanceCounter();
+    uint64_t CountElapsed = EndCounter - LastCounter;
+    float MsPerFrme = (1000.0f * CountElapsed) / (float) PerfCountFrequency;
+    float FPS = (float) PerfCountFrequency / (float) CountElapsed;
+    uint64_t EndCycleCount = _rdtsc();
+    uint64_t CyclesElapsed = EndCycleCount - LastCycleCount;
+    float MegaCyclesPerFrame = (float)CyclesElapsed / (1000 * 1000);
+
+    printf("ms/f: %.02f - fps: %.02f, mc/f - %.02f\n", MsPerFrme, FPS, MegaCyclesPerFrame);
+
+    LastCounter = EndCounter;
+    LastCycleCount = EndCycleCount;
   }
 
   if (Buffer.Texture) { SDL_DestroyTexture(Buffer.Texture); }

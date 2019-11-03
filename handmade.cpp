@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <math.h>
 
 struct BackBuffer {
   SDL_Texture *Texture;
@@ -101,7 +102,7 @@ void SDLInitAudio(int32_t SamplePerSecond, int32_t BufferSize) {
   AudioSettings.freq = SamplePerSecond;
   AudioSettings.format = AUDIO_S16LSB;
   AudioSettings.channels = 2;
-  AudioSettings.samples = 1024;
+  AudioSettings.samples = 512;
   AudioSettings.callback = &SDLAudioCallback;
   AudioSettings.userdata = &AudioRingBuffer;
 
@@ -118,6 +119,57 @@ void SDLInitAudio(int32_t SamplePerSecond, int32_t BufferSize) {
     printf("DIDN'T GET AUDIO FORMAT");
     SDL_CloseAudio();
   }
+}
+
+struct sdl_sound_output {
+  int SamplesPerSecond;
+  int ToneHz;
+  int16_t ToneVolume;
+  uint32_t RunningSampleIndex;
+  int WavePeriod;
+  int BytesPerSample;
+  int SecondaryBufferSize;
+  float tSine;
+  int LatencySampleCount;
+};
+
+void SDLFillSoundBuffer(sdl_sound_output *SoundOutput, int ByteToLock, int BytesToWrite) {
+    void *Region1 = (uint8_t*)AudioRingBuffer.Data + ByteToLock;
+    int Region1Size = BytesToWrite;
+
+    if (Region1Size + ByteToLock > SoundOutput->SecondaryBufferSize) {
+      Region1Size = SoundOutput->SecondaryBufferSize - ByteToLock;
+    }
+
+    void *Region2 = AudioRingBuffer.Data;
+    int Region2Size = BytesToWrite - Region1Size;
+
+    int Region1SampleCount = Region1Size / SoundOutput->BytesPerSample;
+    int16_t *SampleOut = (int16_t*)Region1;
+
+    for (int SampleIndex = 0; SampleIndex < Region1SampleCount; ++SampleIndex) {
+      float SineValue = sin(SoundOutput->tSine);
+      int16_t SampleValue = (int16_t)(SineValue * SoundOutput->ToneVolume);
+      printf("%d\n", SampleValue);
+      *SampleOut++ = SampleValue;
+      *SampleOut++ = SampleValue;
+
+      SoundOutput->tSine += 2.0f * M_PI * 1.0f / (float)SoundOutput->WavePeriod;
+      ++SoundOutput->RunningSampleIndex;
+    }
+
+    int Region2SampleCount = Region2Size / SoundOutput->BytesPerSample;
+    SampleOut = (int16_t *)Region2;
+
+    for (int SampleIndex = 0; SampleIndex < Region2SampleCount; ++SampleIndex) {
+      float SineValue = sin(SoundOutput->tSine);
+      int16_t SampleValue = (int16_t)(SineValue * SoundOutput->ToneVolume);
+      *SampleOut++ = SampleValue;
+      *SampleOut++ = SampleValue;
+
+      SoundOutput->tSine += 2.0f * M_PI * 1.0f / (float)SoundOutput->WavePeriod;
+      ++SoundOutput->RunningSampleIndex;
+    }
 }
 
 int main() {
@@ -142,17 +194,22 @@ int main() {
   int speed = 3;
 
   // Sound Test
-  int SamplesPerSecond = 48000;
-  int ToneHz = 256;
-  int16_t ToneVolume = 3000;
-  uint32_t RunningSampleIndex = 0;
-  int SquareWavePeriod = SamplesPerSecond / ToneHz;
-  int HalfSquareWavePeriod = SquareWavePeriod / 2;
-  int BytesPerSample = sizeof(int16_t) * 2;
-  int SecondaryBufferSize = SamplesPerSecond * BytesPerSample;
+  sdl_sound_output SoundOutput;
+  SoundOutput.SamplesPerSecond = 48000;
+  SoundOutput.ToneHz = 256;
+  SoundOutput.ToneVolume = 3000;
+  SoundOutput.RunningSampleIndex = 0;
+  SoundOutput.WavePeriod = SoundOutput.SamplesPerSecond / SoundOutput.ToneHz;
+  SoundOutput.BytesPerSample = sizeof(int16_t) * 2;
+  SoundOutput.tSine = 0.0f;
+  SoundOutput.LatencySampleCount = SoundOutput.SamplesPerSecond / 15;
+  SoundOutput.SecondaryBufferSize = SoundOutput.SamplesPerSecond * SoundOutput.BytesPerSample;
 
   // Open our audio device
-  SDLInitAudio(48000, SecondaryBufferSize);
+  SDLInitAudio(48000, SoundOutput.SecondaryBufferSize);
+  SDLFillSoundBuffer(&SoundOutput, 0, SoundOutput.LatencySampleCount * SoundOutput.BytesPerSample);
+  SDL_PauseAudio(0);
+
   bool SoundIsPlaying = false;
 
   while(Running) {
@@ -184,56 +241,23 @@ int main() {
     }
 
     SDLUpdatePixels(Buffer, XOffset, YOffset);
-    SDLUpdateWindow(Window, Renderer, Buffer);
 
     // Sound output test
     SDL_LockAudio();
-    int BytesToLock = RunningSampleIndex * BytesPerSample % SecondaryBufferSize;
+    int ByteToLock = (SoundOutput.RunningSampleIndex * SoundOutput.BytesPerSample) % SoundOutput.SecondaryBufferSize;
+    int TargetCursor = (AudioRingBuffer.PlayCursor + SoundOutput.LatencySampleCount * SoundOutput.BytesPerSample) %
+                        SoundOutput.SecondaryBufferSize;
     int BytesToWrite;
-    if (BytesToLock == AudioRingBuffer.PlayCursor) {
-      BytesToWrite = SecondaryBufferSize;
-    } else if (BytesToLock > AudioRingBuffer.PlayCursor) {
-      BytesToWrite = (SecondaryBufferSize - BytesToLock);
-      BytesToWrite += AudioRingBuffer.PlayCursor;
+    if (ByteToLock > TargetCursor) {
+      BytesToWrite = (SoundOutput.SecondaryBufferSize - ByteToLock);
+      BytesToWrite += TargetCursor;
     } else {
-      BytesToWrite = AudioRingBuffer.PlayCursor - BytesToLock;
+      BytesToWrite = TargetCursor - ByteToLock;
     }
-
-    void *Region1 = (uint8_t*)AudioRingBuffer.Data + BytesToLock;
-    int Region1Size = BytesToWrite;
-
-    if (Region1Size + BytesToLock > SecondaryBufferSize) {
-      Region1Size = SecondaryBufferSize - BytesToLock;
-    }
-
-    void *Region2 = AudioRingBuffer.Data;
-    int Region2Size = BytesToWrite - Region1Size;
     SDL_UnlockAudio();
+    SDLFillSoundBuffer(&SoundOutput, ByteToLock, BytesToWrite);
 
-    int Region1SampleCount = Region1Size / BytesPerSample;
-    int16_t *SampleOut = (int16_t*)Region1;
-
-    for (int SampleIndex = 0; SampleIndex < Region1SampleCount; ++SampleIndex) {
-      int16_t SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? ToneVolume : -ToneVolume;
-
-      *SampleOut++ = SampleValue;
-      *SampleOut++ = SampleValue;
-    }
-
-    int Region2SampleCount = Region2Size / BytesPerSample;
-    SampleOut = (int16_t *)Region2;
-
-    for (int SampleIndex = 0; SampleIndex < Region2SampleCount; ++SampleIndex) {
-      int16_t SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? ToneVolume : -ToneVolume;
-
-      *SampleOut++ = SampleValue;
-      *SampleOut++ = SampleValue;
-    }
-
-    if (!SoundIsPlaying) {
-      SDL_PauseAudio(0);
-      SoundIsPlaying = true;
-    }
+    SDLUpdateWindow(Window, Renderer, Buffer);
   }
 
   if (Buffer.Texture) { SDL_DestroyTexture(Buffer.Texture); }
